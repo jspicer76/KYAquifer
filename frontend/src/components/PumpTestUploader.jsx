@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useAquiferStore } from "../store/aquiferStore";
 import Papa from "papaparse";
 import { Line } from "react-chartjs-2";
 import {
   Chart as ChartJS,
   CategoryScale,
   LinearScale,
+  LogarithmicScale,
   PointElement,
   LineElement,
   Tooltip,
@@ -14,6 +15,7 @@ import {
 ChartJS.register(
   CategoryScale,
   LinearScale,
+  LogarithmicScale,
   PointElement,
   LineElement,
   Tooltip,
@@ -21,28 +23,45 @@ ChartJS.register(
 );
 
 export default function PumpTestUploader() {
-  const [stepData, setStepData] = useState(null);
-  const [constantData, setConstantData] = useState(null);
-  const [recoveryData, setRecoveryData] = useState(null);
+  const setPumpTestData = useAquiferStore((s) => s.setPumpTestData);
+  const pumpTests = useAquiferStore((s) => s.pumpTests);
 
-  // generic CSV loader
-  function loadCSV(e, setter) {
+  // ---------------------------------------------
+  // CSV UPLOADER
+  // ---------------------------------------------
+  function uploadCSV(e, key) {
     const file = e.target.files[0];
+    if (!file) return;
+
     Papa.parse(file, {
       header: true,
       dynamicTyping: true,
-      complete: (result) => setter(result.data),
+      skipEmptyLines: true,
+      complete: (result) => {
+        const cleaned = result.data.filter(
+          (row) =>
+            row !== null &&
+            row !== undefined &&
+            Object.keys(row).length > 0 &&
+            !Object.values(row).some((v) => v === "" || v === null)
+        );
+
+        setPumpTestData(key, cleaned);
+      },
     });
   }
 
-  function makeChartData(data, xKey, yKey, label) {
+  // ---------------------------------------------
+  // BUILD CHART DATA
+  // ---------------------------------------------
+  function makeChartData(data, xKey, yKey, label, color = "blue") {
     return {
-      labels: data.map((row) => row[xKey]),
+      labels: data.map((r) => r[xKey]),
       datasets: [
         {
-          label: label,
-          data: data.map((row) => row[yKey]),
-          borderColor: "blue",
+          label,
+          data: data.map((r) => r[yKey]),
+          borderColor: color,
           borderWidth: 2,
           pointRadius: 3,
         },
@@ -54,71 +73,103 @@ export default function PumpTestUploader() {
     <div style={{ marginTop: "2rem" }}>
       <h2>Pump Test Analysis</h2>
 
-      {/* STEP TEST */}
+      {/* ======================================================
+         STEP TEST
+      ======================================================= */}
       <div style={{ marginTop: "1rem" }}>
         <h3>Step-Drawdown Test</h3>
-        <p>Upload a CSV with: time_min, drawdown_ft, rate_gpm</p>
-        <input type="file" accept=".csv" onChange={(e) => loadCSV(e, setStepData)} />
+        <p>CSV columns required: <b>time_min</b>, <b>drawdown_ft</b>, <b>rate_gpm</b></p>
 
-        {stepData && (
+        <input type="file" accept=".csv" onChange={(e) => uploadCSV(e, "step")} />
+
+        {pumpTests.step.length > 0 && (
           <>
-            <h4>Step Test Plot (Drawdown vs Time)</h4>
+            <h4>Drawdown vs Time</h4>
             <Line
-              data={makeChartData(stepData, "time_min", "drawdown_ft", "Step Test")}
+              id="step-chart"
+              data={makeChartData(
+                pumpTests.step,
+                "time_min",
+                "drawdown_ft",
+                "Step Test",
+                "blue"
+              )}
             />
           </>
         )}
       </div>
 
-      {/* CONSTANT RATE TEST */}
+      {/* ======================================================
+         CONSTANT RATE TEST
+      ======================================================= */}
       <div style={{ marginTop: "2rem" }}>
         <h3>Constant-Rate Test (72-Hour)</h3>
-        <p>Upload a CSV with: time_hr, drawdown_ft</p>
+        <p>CSV columns required: <b>time_hr</b>, <b>drawdown_ft</b></p>
+
         <input
           type="file"
           accept=".csv"
-          onChange={(e) => loadCSV(e, setConstantData)}
+          onChange={(e) => uploadCSV(e, "constant")}
         />
 
-        {constantData && (
+        {pumpTests.constant.length > 0 && (
           <>
-            <h4>Constant Rate Plot (Drawdown vs Log Time)</h4>
+            <h4>Drawdown vs Log(Time)</h4>
             <Line
+              id="constant-chart"
               data={{
-                labels: constantData.map((row) => Math.log10(row.time_hr)),
+                labels: pumpTests.constant.map((r) =>
+                  r.time_hr > 0 ? Math.log10(r.time_hr) : 0
+                ),
                 datasets: [
                   {
                     label: "Constant-Rate Drawdown",
-                    data: constantData.map((row) => row.drawdown_ft),
+                    data: pumpTests.constant.map((r) => r.drawdown_ft),
                     borderColor: "red",
                     borderWidth: 2,
+                    pointRadius: 3,
                   },
                 ],
+              }}
+              options={{
+                scales: {
+                  x: {
+                    title: { display: true, text: "log10(time_hr)" },
+                  },
+                  y: {
+                    title: { display: true, text: "Drawdown (ft)" },
+                  },
+                },
               }}
             />
           </>
         )}
       </div>
 
-      {/* RECOVERY TEST */}
+      {/* ======================================================
+         RECOVERY TEST
+      ======================================================= */}
       <div style={{ marginTop: "2rem" }}>
         <h3>Recovery Test</h3>
-        <p>Upload a CSV with: time_min, residual_drawdown_ft</p>
+        <p>CSV columns required: <b>time_min</b>, <b>residual_drawdown_ft</b></p>
+
         <input
           type="file"
           accept=".csv"
-          onChange={(e) => loadCSV(e, setRecoveryData)}
+          onChange={(e) => uploadCSV(e, "recovery")}
         />
 
-        {recoveryData && (
+        {pumpTests.recovery.length > 0 && (
           <>
-            <h4>Recovery Plot (Residual vs Time)</h4>
+            <h4>Residual Drawdown vs Time</h4>
             <Line
+              id="recovery-chart"
               data={makeChartData(
-                recoveryData,
+                pumpTests.recovery,
                 "time_min",
                 "residual_drawdown_ft",
-                "Recovery"
+                "Recovery Test",
+                "green"
               )}
             />
           </>
