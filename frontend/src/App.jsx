@@ -1,21 +1,34 @@
+import { useState } from "react";
+
 import AquiferMap from "./components/Map";
 import PumpTestUploader from "./components/PumpTestUploader";
 import AnalysisPanel from "./components/AnalysisPanel";
 import WellEditorDrawer from "./components/WellEditorDrawer";
 import WellCSVImporter from "./components/WellCSVImporter";
 import TimeSeriesViewer from "./components/TimeSeriesViewer";
-import { useAquiferStore } from "./store/aquiferStore";
 import CalibrationPanel from "./components/CalibrationPanel";
+import CrossSection from "./components/CrossSection";
 
+import { useAquiferStore } from "./store/aquiferStore";
 
 export default function App() {
+  // Store hooks
   const geometry = useAquiferStore((s) => s.geometry);
   const setGeometry = useAquiferStore((s) => s.setGeometry);
+
   const toggleWHP = useAquiferStore((s) => s.toggleWHP);
   const showWHP = useAquiferStore((s) => s.showWHP);
+
+  const computeWHP = useAquiferStore((s) => s.computeWHP);
+
   const wells = geometry.wells;
+
   const setPumping = useAquiferStore((s) => s.updateWell);
 
+  // Cross Section Visibility
+  const [showXsec, setShowXsec] = useState(false);
+
+  // Boundary handling
   const setBoundaryMode = (mode) =>
     setGeometry({ boundaryMode: mode });
 
@@ -50,23 +63,48 @@ export default function App() {
       >
         <h2>Aquifer Analysis Tool</h2>
 
+        {/* ---------------------- */}
+        {/* BOUNDARY TOOLS */}
+        {/* ---------------------- */}
         <h3>Boundary Tools</h3>
-        <button onClick={() => setBoundaryMode("constantHead")} style={{ width: "100%" }}>
-          Draw Constant Head Boundary (Blue Dashed)
+
+        <button
+          onClick={() => setBoundaryMode("constantHead")}
+          style={{ width: "100%" }}
+        >
+          Draw Constant Head (Blue Dashed)
         </button>
-        <button onClick={() => setBoundaryMode("noFlow")} style={{ width: "100%", marginTop: "0.3rem" }}>
-          Draw No-Flow Boundary (Red)
+
+        <button
+          onClick={() => setBoundaryMode("noFlow")}
+          style={{ width: "100%", marginTop: "0.3rem" }}
+        >
+          Draw No-Flow (Red Solid)
         </button>
-        <button onClick={() => setBoundaryMode("infinite")} style={{ width: "100%", marginTop: "0.3rem" }}>
-          Draw Infinite Boundary (Green)
+
+        <button
+          onClick={() => setBoundaryMode("infinite")}
+          style={{ width: "100%", marginTop: "0.3rem" }}
+        >
+          Draw Infinite (Green Dashed)
         </button>
-        <button onClick={() => setBoundaryMode(null)} style={{ width: "100%", marginTop: "0.3rem" }}>
+
+        <button
+          onClick={() => setBoundaryMode(null)}
+          style={{ width: "100%", marginTop: "0.3rem" }}
+        >
           Place / Move Wells
         </button>
-        <button onClick={computeWHPZones} style={{ width: "100%" }}>
+
+        {/* WHP Button */}
+        <button
+          onClick={computeWHP}
+          style={{ width: "100%", marginTop: "0.5rem" }}
+        >
           Compute WHP Zones
         </button>
 
+        {/* Clear */}
         <button
           onClick={clearBoundaries}
           style={{
@@ -81,8 +119,14 @@ export default function App() {
 
         <hr />
 
+        {/* ---------------------- */}
+        {/* WELLS */}
+        {/* ---------------------- */}
         <h3>Wells</h3>
-        {wells.length === 0 ? <p>No wells yet. Click map or import CSV.</p> : null}
+
+        {wells.length === 0 ? (
+          <p>No wells yet. Click on map or import CSV.</p>
+        ) : null}
 
         {wells.map((w) => (
           <div
@@ -97,7 +141,8 @@ export default function App() {
             <strong>{w.name}</strong>
             <br />
             Lat: {w.lat.toFixed(6)} <br />
-            Lng: {w.lng.toFixed(6)} <br />
+            Lng: {w.lng.toFixed(6)}
+
             <button
               onClick={() => setPumping(w.id, { isPumping: true })}
               style={{
@@ -112,27 +157,53 @@ export default function App() {
           </div>
         ))}
 
-        {/* CSV importer */}
+        {/* Importer */}
         <WellCSVImporter />
 
         <hr />
 
+        {/* WHP toggle */}
         <button onClick={toggleWHP} style={{ width: "100%" }}>
           {showWHP ? "Hide WHP Zones" : "Show WHP Zones"}
         </button>
 
         <hr />
 
+        {/* ---------------------- */}
+        {/* PUMP TEST DATA */}
+        {/* ---------------------- */}
         <h3>Pump Test Data</h3>
         <PumpTestUploader />
 
-        {/* NEW: Time-series viewer */}
+        {/* Time-series */}
         <TimeSeriesViewer />
-        <hr />
-       <CalibrationPanel />
+
         <hr />
 
+        <CalibrationPanel />
+
+        <hr />
+
+        {/* ---------------------- */}
+        {/* ANALYSIS PANEL */}
+        {/* ---------------------- */}
         <AnalysisPanel />
+
+        <hr />
+
+        {/* Cross Section */}
+        <button
+          onClick={() => setShowXsec(!showXsec)}
+          style={{ width: "100%" }}
+        >
+          {showXsec ? "Hide Cross Section" : "Show Cross Section"}
+        </button>
+
+        {showXsec && (
+          <div style={{ marginTop: "1rem" }}>
+            <CrossSection />
+          </div>
+        )}
       </div>
 
       {/* RIGHT PANEL */}
