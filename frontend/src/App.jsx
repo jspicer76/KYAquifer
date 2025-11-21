@@ -63,6 +63,9 @@ export default function App() {
         <button onClick={() => setBoundaryMode(null)} style={{ width: "100%", marginTop: "0.3rem" }}>
           Place / Move Wells
         </button>
+        <button onClick={computeWHPZones} style={{ width: "100%" }}>
+          Compute WHP Zones
+        </button>
 
         <button
           onClick={clearBoundaries}
@@ -126,7 +129,7 @@ export default function App() {
         {/* NEW: Time-series viewer */}
         <TimeSeriesViewer />
         <hr />
-        <CalibrationPanel />
+       <CalibrationPanel />
         <hr />
 
         <AnalysisPanel />

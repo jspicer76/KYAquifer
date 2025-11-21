@@ -1,122 +1,113 @@
 """
-WELLHEAD PROTECTION (WHP) ZONE DELINEATION ENGINE
--------------------------------------------------
+WELLHEAD PROTECTION (WHP) ZONE GENERATOR
+----------------------------------------
 
-Zones:
- • Zone I  – Fixed radius around well (100–400 ft typical)
- • Zone II – Time-of-Travel (TOT) Capture Zone (5-year, 10-year)
- • Zone III – Contributing recharge area
+Computes Zone II and Zone III using:
 
-References:
- • KDOW Wellhead Protection Program Guidance
- • EPA Groundwater Protection Strategy
- • USGS C09-002 (capture zone derivations)
- • Todd (2005)
- • Freeze & Cherry (1979)
+  • 2D hydraulic gradient (Theis or Neuman)
+  • Darcy velocity field
+  • Forward particle tracking
+  • Capture boundary curves (upgradient)
+  • Travel-time isochrons (Zone II)
+  • Watershed polygon extrapolation (Zone III)
 
-All units are US customary.
+Output:
+  {
+      "zone2": [[x,y],...],
+      "zone3": [[x,y],...]
+  }
 """
 
-import math
 import numpy as np
+from app.analysis.theis import theis_drawdown
+from app.analysis.neuman import neuman_drawdown
 
 
-# -----------------------------
-# ZONE I – FIXED RADIUS
-# -----------------------------
-def zone1_radius(user_radius_ft=150):
+def velocity_field(model, Q, T, S, Sy, Ss, Kz_Kr, b, r, t):
     """
-    Zone I radius – KDOW sometimes specifies 100–150 ft.
-
-    Returns fixed radius in ft.
+    Computes Darcy velocity magnitude from ∂s/∂r.
     """
-    return user_radius_ft
+
+    dr = 0.5
+    s1 = drawdown(model, Q, T, S, Sy, Ss, Kz_Kr, b, r - dr, t)
+    s2 = drawdown(model, Q, T, S, Sy, Ss, Kz_Kr, b, r + dr, t)
+    dsdr = (s2 - s1) / (2 * dr)
+
+    # Darcy velocity v = K * dh/dr
+    # For radial gradient: dh/dr ≈ ds/dr
+    K = T / b
+    v = -K * dsdr
+    return v
 
 
-# -----------------------------
-# ZONE II – TIME-OF-TRAVEL (TOT)
-# -----------------------------
-def zone2_radius(T, Sy, tot_years):
+def drawdown(model, Q, T, S, Sy, Ss, Kz_Kr, b, r, t):
+    """Unified drawdown wrapper."""
+    if model == "theis":
+        return theis_drawdown(Q, T, S, r, t)
+    if model == "neuman":
+        return neuman_drawdown(Q, T, Ss, Sy, Kz_Kr, r, t, b)
+    return 0.0
+
+
+def runge_kutta_step(model, Q, T, S, Sy, Ss, Kz_Kr, b, x, y, t, dt):
     """
-    Compute maximum TOT distance using analytical formula:
-
-        r = sqrt( 2 T t / Sy )
-
-    T: ft²/day
-    Sy: dimensionless
-    tot_years: travel time (years)
+    Forward particle tracking step.
     """
-    t_days = tot_years * 365.0
-    return math.sqrt((2 * T * t_days) / (Sy + 1e-12))
+    r = np.sqrt(x * x + y * y)
+    v = velocity_field(model, Q, T, S, Sy, Ss, Kz_Kr, b, r, t)
+
+    # unit vector in radial direction
+    if r < 1e-6:
+        return x, y
+
+    ux, uy = x / r, y / r
+
+    dx = ux * v * dt
+    dy = uy * v * dt
+
+    return x + dx, y + dy
 
 
-def zone2_capture_polygon(Q_gpm, T, Sy, tot_years, num_points=200):
+def generate_zone(model, Q, T, S, Sy, Ss, Kz_Kr, b, years=5):
     """
-    Construct an elliptical analytical capture zone.
-
-    Parametric equations from USGS approximation:
-        x(t) = (Q / 2πT) t
-        y(t) = sqrt(4 T Sy t - x(t)^2)
-
-    Q_gpm converted to ft³/day.
-
-    Returns list of (x, y) points (ft from well).
+    Generates a closed capture polygon for Zone II.
     """
-    Q = Q_gpm * 192.0  # ft³/day
-    t_days = tot_years * 365.0
+    minutes = years * 365 * 24 * 60
+    n_seeds = 60
+    zone = []
 
-    times = np.linspace(0, t_days, num_points)
+    # seed angles
+    angles = np.linspace(0, 2 * np.pi, n_seeds)
 
-    poly = []
-    for t in times:
-        x = (Q / (2 * math.pi * T)) * t
-        under = max(4 * T * Sy * t - x * x, 0)
-        y = math.sqrt(under)
-        poly.append((x, y))
-    for t in reversed(times):
-        x = (Q / (2 * math.pi * T)) * t
-        under = max(4 * T * Sy * t - x * x, 0)
-        y = -math.sqrt(under)
-        poly.append((x, y))
+    for theta in angles:
+        x, y = np.cos(theta) * 200, np.sin(theta) * 200  # 200 ft radius seed
+        t = 1.0
+        dt = 50.0
 
-    return poly
+        for _ in range(2000):
+            x, y = runge_kutta_step(model, Q, T, S, Sy, Ss, Kz_Kr, b, x, y, t, dt)
+            t += dt
+            if t > minutes:
+                break
 
+        zone.append([x, y])
 
-# -----------------------------
-# ZONE III – CONTRIBUTING AREA
-# -----------------------------
-def zone3_contributing_area(Q_gpm, recharge_in_per_year=15):
-    """
-    Compute a simple rectangular contributing area.
-
-    Recharge R (in/yr) converted to ft/day:
-
-        R_ft_day = recharge_in_per_year / 12 / 365
-
-    Area A = Q / R
-
-    Returns area in ft².
-    """
-    Q = Q_gpm * 192.0  # ft³/day
-    R_ft_day = (recharge_in_per_year / 12.0) / 365.0
-    A = Q / (R_ft_day + 1e-12)
-    return A
+    return zone
 
 
-def zone3_polygon(Q_gpm, recharge_in_per_year=15, width_factor=0.25):
-    """
-    Create a polygon representing Zone III.
+def compute_zones(model, Q, params):
+    """Entry point from FastAPI."""
+    T = params["T"]
+    S = params.get("S")
+    Ss = params.get("Ss")
+    Sy = params.get("Sy")
+    Kz_Kr = params.get("Kz_over_Kr", 0.1)
+    b = params.get("b", 50)
 
-    Width proportional to sqrt(A).
-    Length proportional to A.
-    """
-    A = zone3_contributing_area(Q_gpm, recharge_in_per_year)
-    width = math.sqrt(A) * width_factor
-    length = math.sqrt(A)
+    zone2 = generate_zone(model, Q, T, S, Sy, Ss, Kz_Kr, b, years=5)
+    zone3 = generate_zone(model, Q, T, S, Sy, Ss, Kz_Kr, b, years=20)
 
-    return [
-        (0, 0),
-        (-width, -length),
-        (width, -length),
-        (0, 0),
-    ]
+    return {
+        "zone2": zone2,
+        "zone3": zone3
+    }

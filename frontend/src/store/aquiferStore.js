@@ -7,7 +7,7 @@ export const useAquiferStore = create((set, get) => ({
   // GEOMETRY & AQUIFER PARAMETERS
   // ---------------------------
   geometry: {
-    wells: [],                // full metadata now
+    wells: [],
     boundaries: {
       constantHead: [],
       noFlow: [],
@@ -15,14 +15,14 @@ export const useAquiferStore = create((set, get) => ({
     },
     boundaryMode: null,
 
-    // Pumping well (center for WHP)
+    // Pumping well (reference for WHP)
     wellLat: 38.2,
     wellLng: -85.9,
 
     pumpingRate_gpm: 400,
     pumpingWellRadius_ft: 0.5,
     r_ft: 150,
-    b_thick_ft: 50,
+    b_thick_ft: 50, // aquifer saturated thickness
     T: 2000,
     S: 0.0003,
     Sy: 0.2,
@@ -40,14 +40,46 @@ export const useAquiferStore = create((set, get) => ({
   },
 
   // ---------------------------
-  // WHP ZONES
+  // WHP ZONES (NEW)
   // ---------------------------
   whp: {
-    zone1: null,
-    zone2: [],
-    zone3: [],
+    zone1: null, // ft
+    zone2: [],   // [[x,y],...]
+    zone3: [],   // [[x,y],...]
   },
-  showWHP: true,
+
+  showWHP: false,
+
+  toggleWHP: () =>
+    set((state) => ({
+      showWHP: !state.showWHP,
+    })),
+
+  // WHP computation via backend
+  computeWHP: async () => {
+    const g = get().geometry;
+
+    const payload = {
+      Q_gpm: g.pumpingRate_gpm,
+      T: g.T,
+      Sy: g.Sy,
+      b_ft: g.b_thick_ft,
+      well_lat: g.wellLat,
+      well_lng: g.wellLng,
+      pumping_radius_ft: g.pumpingWellRadius_ft,
+    };
+
+    const res = await api.post("/whp/compute", payload);
+
+    set({
+      whp: {
+        zone1: res.data.zone1_ft,
+        zone2: res.data.zone2_polygon_ft,
+        zone3: res.data.zone3_polygon_ft,
+      },
+      showWHP: true,
+    });
+  },
 
   // ---------------------------
   // ANALYSIS RESULTS
@@ -55,7 +87,7 @@ export const useAquiferStore = create((set, get) => ({
   analysis: null,
 
   // ---------------------------
-  // WELL EDITOR DRAWER UI STATE
+  // WELL EDITOR
   // ---------------------------
   isWellEditorOpen: false,
   editWellId: null,
@@ -73,7 +105,7 @@ export const useAquiferStore = create((set, get) => ({
     }),
 
   // ---------------------------
-  // ADD SINGLE WELL (click on map)
+  // CLICK-ADD WELL
   // ---------------------------
   addWell: ({ lat, lng }) => {
     const { geometry } = get();
@@ -86,7 +118,6 @@ export const useAquiferStore = create((set, get) => ({
       newName = "PW-1";
       isPumping = true;
 
-      // Set pumping well coordinates
       set({
         geometry: {
           ...geometry,
@@ -123,116 +154,105 @@ export const useAquiferStore = create((set, get) => ({
   },
 
   // ---------------------------
-  // BULK IMPORT WELLS FROM CSV
+  // CSV IMPORT WELLS
   // ---------------------------
   importWellsFromCSV: (rows) => {
     const { geometry } = get();
-    let existingWells = [...geometry.wells];
+    let existing = [...geometry.wells];
 
-    // Helper to parse numeric safely
     const toNum = (v) =>
       v === undefined || v === null || v === "" ? null : Number(v);
 
-    // Compute existing OBS count for naming when name is missing
-    let obsCountExisting = existingWells.filter((w) => !w.isPumping).length;
+    let obsCounter = existing.filter((w) => !w.isPumping).length;
 
-    // Collect imported wells
-    const imported = rows.map((row) => {
-      const lat =
-        toNum(row.lat) ??
-        toNum(row.Lat) ??
-        toNum(row.latitude) ??
-        toNum(row.Latitude);
-      const lng =
-        toNum(row.lng) ??
-        toNum(row.Lng) ??
-        toNum(row.longitude) ??
-        toNum(row.Longitude);
+    const imported = rows
+      .map((row) => {
+        const lat =
+          toNum(row.lat) ??
+          toNum(row.Lat) ??
+          toNum(row.latitude) ??
+          toNum(row.Latitude);
+        const lng =
+          toNum(row.lng) ??
+          toNum(row.Lng) ??
+          toNum(row.longitude) ??
+          toNum(row.Longitude);
 
-      if (lat === null || lng === null) {
-        return null; // skip invalid
-      }
+        if (lat === null || lng === null) return null;
 
-      // Name (use provided or auto)
-      let name =
-        row.name ||
-        row.Name ||
-        row.WellName ||
-        row.well_name ||
-        null;
+        let name =
+          row.name ||
+          row.Name ||
+          row.WellName ||
+          row.well_name ||
+          null;
 
-      // Type / Pumping flag
-      const typeRaw = (row.type || row.Type || "").toString().toLowerCase();
-      const isPumpingFromCSV =
-        typeRaw === "pw" ||
-        typeRaw === "p" ||
-        typeRaw === "pumping" ||
-        typeRaw === "pump";
+        const typeRaw = (row.type || row.Type || "").toString().toLowerCase();
+        const isPumping =
+          typeRaw === "pw" ||
+          typeRaw === "p" ||
+          typeRaw === "pumping";
 
-      // If no name given, auto-assign
-      if (!name) {
-        if (isPumpingFromCSV && !existingWells.some((w) => w.isPumping)) {
-          name = "PW-1";
-        } else {
-          obsCountExisting += 1;
-          name = `OBS-${obsCountExisting}`;
+        if (!name) {
+          if (isPumping && !existing.some((w) => w.isPumping)) {
+            name = "PW-1";
+          } else {
+            obsCounter++;
+            name = `OBS-${obsCounter}`;
+          }
         }
-      }
 
-      return {
-        id: uuidv4(),
-        lat,
-        lng,
-        name,
-        isPumping: isPumpingFromCSV,
-        depth_ft: toNum(row.depth_ft ?? row.Depth_ft ?? row.Depth),
-        screen_top_ft: toNum(
-          row.screen_top_ft ?? row.ScreenTop_ft ?? row.ScreenTop
-        ),
-        screen_bottom_ft: toNum(
-          row.screen_bottom_ft ?? row.ScreenBottom_ft ?? row.ScreenBottom
-        ),
-        casing_diameter_in: toNum(
-          row.casing_diameter_in ??
-            row.CasingDiameter_in ??
-            row.CasingDiameter
-        ),
-        pump_depth_ft: toNum(
-          row.pump_depth_ft ?? row.PumpDepth_ft ?? row.PumpDepth
-        ),
-        static_water_level_ft: toNum(
-          row.static_water_level_ft ??
-            row.StaticWaterLevel_ft ??
-            row.StaticWaterLevel
-        ),
-        pump_test_notes:
-          row.pump_test_notes ??
-          row.Notes ??
-          row.notes ??
-          "",
-      };
-    }).filter((w) => w !== null);
+        return {
+          id: uuidv4(),
+          lat,
+          lng,
+          name,
+          isPumping,
+          depth_ft: toNum(row.depth_ft ?? row.Depth ?? row.Depth_ft),
+          screen_top_ft: toNum(
+            row.screen_top_ft ??
+              row.ScreenTop ??
+              row.ScreenTop_ft
+          ),
+          screen_bottom_ft: toNum(
+            row.screen_bottom_ft ??
+              row.ScreenBottom ??
+              row.ScreenBottom_ft
+          ),
+          casing_diameter_in: toNum(
+            row.casing_diameter_in ??
+              row.CasingDiameter ??
+              row.CasingDiameter_in
+          ),
+          pump_depth_ft: toNum(
+            row.pump_depth_ft ??
+              row.PumpDepth ??
+              row.PumpDepth_ft
+          ),
+          static_water_level_ft: toNum(
+            row.static_water_level_ft ??
+              row.StaticWaterLevel ??
+              row.StaticWaterLevel_ft
+          ),
+          pump_test_notes:
+            row.pump_test_notes ??
+            row.Notes ??
+            row.notes ??
+            "",
+        };
+      })
+      .filter(Boolean);
 
-    // Merge existing + imported
-    let merged = existingWells.concat(imported);
+    let merged = existing.concat(imported);
 
-    // Ensure only one pumping well
-    const pumpingWells = merged.filter((w) => w.isPumping);
-    if (pumpingWells.length > 1) {
-      // If multiple flagged as pumping, keep the first, demote others
-      pumpingWells.slice(1).forEach((w) => {
-        w.isPumping = false;
-      });
+    // Ensure single pumping well
+    const pumpingList = merged.filter((w) => w.isPumping);
+    if (pumpingList.length > 1) {
+      pumpingList.slice(1).forEach((w) => (w.isPumping = false));
     }
 
     let pumping = merged.find((w) => w.isPumping);
 
-    // If still none pumping: keep old pumping if any
-    if (!pumping) {
-      pumping = existingWells.find((w) => w.isPumping) || null;
-    }
-
-    // If still none and we have wells, make the first pumping
     if (!pumping && merged.length > 0) {
       merged[0].isPumping = true;
       pumping = merged[0];
@@ -242,14 +262,14 @@ export const useAquiferStore = create((set, get) => ({
       geometry: {
         ...geometry,
         wells: merged,
-        wellLat: pumping ? pumping.lat : geometry.wellLat,
-        wellLng: pumping ? pumping.lng : geometry.wellLng,
+        wellLat: pumping.lat,
+        wellLng: pumping.lng,
       },
     });
   },
 
   // ---------------------------
-  // UPDATE WELL METADATA
+  // UPDATE WELL
   // ---------------------------
   updateWell: (id, updates) => {
     const { geometry } = get();
@@ -257,7 +277,6 @@ export const useAquiferStore = create((set, get) => ({
       w.id === id ? { ...w, ...updates } : w
     );
 
-    // If changing pumping well
     if (updates.isPumping) {
       wells = wells.map((w) =>
         w.id === id ? { ...w, isPumping: true } : { ...w, isPumping: false }
@@ -290,7 +309,6 @@ export const useAquiferStore = create((set, get) => ({
     const { geometry } = get();
     let wells = geometry.wells.filter((w) => w.id !== id);
 
-    // If pumping well deleted → choose first remaining as pumping
     if (!wells.some((w) => w.isPumping) && wells.length > 0) {
       wells[0].isPumping = true;
       set({
@@ -312,7 +330,7 @@ export const useAquiferStore = create((set, get) => ({
   },
 
   // ---------------------------
-  // BOUNDARY SYSTEM
+  // BOUNDARIES
   // ---------------------------
   setGeometry: (updates) =>
     set((state) => ({
@@ -331,7 +349,7 @@ export const useAquiferStore = create((set, get) => ({
     })),
 
   // ---------------------------
-  // PUMP TEST SETTER
+  // PUMP TEST DATA UPDATE
   // ---------------------------
   setPumpTestData: (type, data) =>
     set((state) => ({
@@ -342,7 +360,7 @@ export const useAquiferStore = create((set, get) => ({
     })),
 
   // ---------------------------
-  // RUN ANALYSIS (FastAPI)
+  // RUN AQUIFER ANALYSIS
   // ---------------------------
   runAnalysis: async () => {
     const { geometry, pumpTests } = get();
@@ -380,7 +398,7 @@ export const useAquiferStore = create((set, get) => ({
   },
 
   // ---------------------------
-  // PDF REPORT (legacy endpoint)
+  // PDF REPORT (legacy)
   // ---------------------------
   downloadReport: async (projectId = 1) => {
     const response = await api.get(`/report/kdow/${projectId}`, {

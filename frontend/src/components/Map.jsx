@@ -213,33 +213,44 @@ export default function AquiferMap() {
           );
         })}
 
-        {/* ---------------------------
-            WHP ZONES (I, II, III)
-           ---------------------------
-        */}
-        {showWHP && whp.zone1 && (
+                {/* WHP ZONES */}
+        {showWHP && (
           <>
-            <Circle
-              center={[wellLat, wellLng]}
-              radius={whp.zone1 * 0.3048}
-              pathOptions={{ color: "blue", dashArray: "4" }}
-            />
-
-            {zone2LatLng.length > 2 && (
-              <Polygon
-                positions={zone2LatLng}
-                pathOptions={{ color: "green", dashArray: "5" }}
+            {/* Zone I */}
+            {whp.zone1 && (
+              <Circle
+                center={[wellLat, wellLng]}
+                radius={whp.zone1 * 0.3048}
+                pathOptions={{ color: "blue", dashArray: "4" }}
               />
             )}
 
-            {zone3LatLng.length > 2 && (
+            {/* Zone II */}
+            {whp.zone2.length > 10 && (
               <Polygon
-                positions={zone3LatLng}
-                pathOptions={{ color: "red", dashArray: "5" }}
+                positions={whp.zone2.map(([x, y]) => {
+                  const dLat = feetToLat(y);
+                  const dLng = feetToLng(x, wellLat);
+                  return [wellLat + dLat, wellLng + dLng];
+                })}
+                pathOptions={{ color: "green", dashArray: "8" }}
+              />
+            )}
+
+            {/* Zone III */}
+            {whp.zone3.length > 10 && (
+              <Polygon
+                positions={whp.zone3.map(([x, y]) => {
+                  const dLat = feetToLat(y);
+                  const dLng = feetToLng(x, wellLat);
+                  return [wellLat + dLat, wellLng + dLng];
+                })}
+                pathOptions={{ color: "red", dashArray: "8" }}
               />
             )}
           </>
         )}
+
       </MapContainer>
     </div>
   );
