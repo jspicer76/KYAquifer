@@ -19,6 +19,22 @@ import "../styles/map.css";
 import Papa from "papaparse";
 import DataChartModal from "./DataChartModal";
 
+// Map background options
+const MAP_STYLES = {
+  street: {
+    url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+    attribution: "© OpenStreetMap contributors",
+  },
+  hybrid: {
+    url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    attribution: "© Esri World Imagery",
+  },
+  topo: {
+    url: "https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}",
+    attribution: "© USGS National Map",
+  },
+};
+
 // ------------------------------------------------------------
 // FIX DEFAULT MARKER ICONS
 // ------------------------------------------------------------
@@ -67,7 +83,7 @@ function feetBetween(lat1, lng1, lat2, lng2) {
   return EARTH_RADIUS_FT * c;
 }
 
-export default function AquiferMap() {
+export default function AquiferMap({ mapStyle }) {
   const geometry = useAquiferStore((s) => s.geometry);
 
   // Well actions
@@ -316,8 +332,8 @@ export default function AquiferMap() {
         style={{ height: "100%", width: "100%" }}
       >
         <TileLayer
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          attribution="© OpenStreetMap contributors"
+          url={MAP_STYLES[mapStyle]?.url || MAP_STYLES.street.url}
+          attribution={MAP_STYLES[mapStyle]?.attribution || MAP_STYLES.street.attribution}
         />
 
         <MapClickHandler />

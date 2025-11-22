@@ -9,6 +9,22 @@ import CrossSection from "./components/CrossSection";
 
 import { useAquiferStore } from "./store/aquiferStore";
 
+// Map background options
+const MAP_STYLES = {
+  street: {
+    url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+    attribution: "© OpenStreetMap contributors",
+  },
+  hybrid: {
+    url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    attribution: "© Esri World Imagery",
+  },
+  topo: {
+    url: "https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}",
+    attribution: "© USGS National Map",
+  },
+};
+
 export default function App() {
   const geometry = useAquiferStore((s) => s.geometry);
   const setGeometry = useAquiferStore((s) => s.setGeometry);
@@ -26,6 +42,7 @@ export default function App() {
   const setBoundaryMode = useAquiferStore((s) => s.setBoundaryMode);
 
   const [showXsec, setShowXsec] = useState(false);
+  const [mapStyle, setMapStyle] = useState("street");
 
   // Boundary mode
   const startBoundaryPolygon = useAquiferStore((s) => s.startBoundaryPolygon);
@@ -156,6 +173,43 @@ export default function App() {
 
         <hr />
 
+        {/* MAP BACKGROUND */}
+        <h3>Map Background</h3>
+        <button
+          onClick={() => setMapStyle("street")}
+          style={{
+            width: "100%",
+            background: mapStyle === "street" ? "#0b7285" : "#ddd",
+            color: mapStyle === "street" ? "white" : "black",
+          }}
+        >
+          Street Map
+        </button>
+        <button
+          onClick={() => setMapStyle("hybrid")}
+          style={{
+            width: "100%",
+            marginTop: "0.3rem",
+            background: mapStyle === "hybrid" ? "#0b7285" : "#ddd",
+            color: mapStyle === "hybrid" ? "white" : "black",
+          }}
+        >
+          Hybrid/Aerial
+        </button>
+        <button
+          onClick={() => setMapStyle("topo")}
+          style={{
+            width: "100%",
+            marginTop: "0.3rem",
+            background: mapStyle === "topo" ? "#0b7285" : "#ddd",
+            color: mapStyle === "topo" ? "white" : "black",
+          }}
+        >
+          USGS Topographic
+        </button>
+
+        <hr />
+
         {/* WELL LIST */}
         <h3>Wells</h3>
 
@@ -233,7 +287,7 @@ export default function App() {
 
       {/* RIGHT PANEL */}
       <div style={{ flexGrow: 1, position: "relative" }}>
-        <AquiferMap />
+        <AquiferMap mapStyle={mapStyle} />
       </div>
     </div>
   );
