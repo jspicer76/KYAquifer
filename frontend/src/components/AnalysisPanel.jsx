@@ -5,6 +5,7 @@ import { api } from "../api/client";
 export default function AnalysisPanel() {
   const runAnalysis = useAquiferStore((s) => s.runAnalysis);
   const analysis = useAquiferStore((s) => s.analysis);
+
   const geometry = useAquiferStore((s) => s.geometry);
   const whp = useAquiferStore((s) => s.whp);
 
@@ -12,25 +13,31 @@ export default function AnalysisPanel() {
   const constantData = useAquiferStore((s) => s.pumpTests.constant);
   const recoveryData = useAquiferStore((s) => s.pumpTests.recovery);
 
-  // -----------------------------------------------
-  // Convert any chart <canvas> elements to base64
-  // -----------------------------------------------
+  // -----------------------------------------------------
+  // Utility: convert a chart <canvas> to a PNG base64
+  // -----------------------------------------------------
   function getPlotBase64(id) {
     const el = document.getElementById(id);
-    if (!el) return null;
-
-    if (el.toDataURL) {
+    if (!el || !el.toDataURL) return null;
+    try {
       return el.toDataURL("image/png");
+    } catch (err) {
+      console.warn("Error capturing chart:", id, err);
+      return null;
     }
-    return null;
   }
 
-  // -----------------------------------------------
-  // EXPORT KDOW PDF
-  // -----------------------------------------------
+  // -----------------------------------------------------
+  // KDOW PDF Generator
+  // -----------------------------------------------------
   async function exportKDOWPDF() {
-    // Capture Leaflet map
-    const mapImage = await captureMapPng();
+    let mapImage = null;
+
+    try {
+      mapImage = await captureMapPng();
+    } catch (err) {
+      console.warn("Map capture failed:", err);
+    }
 
     const payload = {
       project_name: "Aquifer Project",
@@ -40,7 +47,6 @@ export default function AnalysisPanel() {
       whp: whp,
       analysis: analysis || {},
 
-      // Pump test plots (chart canvases must have these IDs)
       map_image_base64: mapImage,
       step_plot_base64: getPlotBase64("step-chart"),
       constant_plot_base64: getPlotBase64("constant-chart"),
@@ -58,11 +64,14 @@ export default function AnalysisPanel() {
       a.download = "KDOW_Aquifer_Report.pdf";
       a.click();
     } catch (err) {
-      console.error("PDF export error:", err);
+      console.error("PDF Export Error:", err);
       alert("PDF generation failed. Check backend logs.");
     }
   }
 
+  // -----------------------------------------------------
+  // Render
+  // -----------------------------------------------------
   return (
     <div
       style={{
@@ -74,7 +83,9 @@ export default function AnalysisPanel() {
     >
       <h2>Analysis</h2>
 
-      <button onClick={runAnalysis}>Run Analysis</button>
+      <button onClick={runAnalysis} style={{ width: "100%" }}>
+        Run Analysis
+      </button>
 
       {analysis && (
         <>
@@ -85,6 +96,7 @@ export default function AnalysisPanel() {
               padding: "0.5rem",
               maxHeight: "250px",
               overflowY: "scroll",
+              fontSize: "0.85rem",
             }}
           >
             {JSON.stringify(analysis, null, 2)}

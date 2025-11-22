@@ -3,26 +3,32 @@ import { api } from "../api/client";
 import { v4 as uuidv4 } from "uuid";
 
 export const useAquiferStore = create((set, get) => ({
-  // ---------------------------
-  // GEOMETRY & AQUIFER PARAMETERS
-  // ---------------------------
+
+  // ---------------------------------------------------
+  // GEOMETRY & PARAMETERS
+  // ---------------------------------------------------
   geometry: {
     wells: [],
+
     boundaries: {
       constantHead: [],
       noFlow: [],
       infinite: [],
     },
-    boundaryMode: null,
 
-    // Pumping well (reference for WHP)
+    boundaryMode: null,         // "constantHead" | "noFlow" | "infinite" | null
+    wellPlacementMode: null,    // "pumping" | "observation" | null
+
+    // Pumping well reference point
     wellLat: 38.2,
     wellLng: -85.9,
 
     pumpingRate_gpm: 400,
     pumpingWellRadius_ft: 0.5,
+
     r_ft: 150,
-    b_thick_ft: 50, // aquifer saturated thickness
+    b_thick_ft: 50,
+
     T: 2000,
     S: 0.0003,
     Sy: 0.2,
@@ -30,32 +36,47 @@ export const useAquiferStore = create((set, get) => ({
     Kz_over_Kr: 0.1,
   },
 
-  // ---------------------------
+  // ---------------------------------------------------
+  // WELL PLACEMENT MODE CONTROL (Unified)
+  // ---------------------------------------------------
+  setPlacementMode: (mode) =>
+    set((state) => ({
+      geometry: { ...state.geometry, wellPlacementMode: mode },
+    })),
+
+  clearPlacementMode: () =>
+    set((state) => ({
+      geometry: { ...state.geometry, wellPlacementMode: null },
+    })),
+
+  // ---------------------------------------------------
   // PUMP TEST DATA
-  // ---------------------------
+  // ---------------------------------------------------
   pumpTests: {
     step: [],
     constant: [],
     recovery: [],
   },
 
-  // ---------------------------
-  // WHP ZONES (NEW)
-  // ---------------------------
+  setPumpTestData: (type, data) =>
+    set((state) => ({
+      pumpTests: { ...state.pumpTests, [type]: data },
+    })),
+
+  // ---------------------------------------------------
+  // WHP ZONES
+  // ---------------------------------------------------
   whp: {
-    zone1: null, // ft
-    zone2: [],   // [[x,y],...]
-    zone3: [],   // [[x,y],...]
+    zone1: null,
+    zone2: [],
+    zone3: [],
   },
 
   showWHP: false,
 
   toggleWHP: () =>
-    set((state) => ({
-      showWHP: !state.showWHP,
-    })),
+    set((state) => ({ showWHP: !state.showWHP })),
 
-  // WHP computation via backend
   computeWHP: async () => {
     const g = get().geometry;
 
@@ -81,60 +102,53 @@ export const useAquiferStore = create((set, get) => ({
     });
   },
 
-  // ---------------------------
-  // ANALYSIS RESULTS
-  // ---------------------------
-  analysis: null,
-
-  // ---------------------------
+  // ---------------------------------------------------
   // WELL EDITOR
-  // ---------------------------
+  // ---------------------------------------------------
   isWellEditorOpen: false,
   editWellId: null,
 
   openWellEditor: (id) =>
-    set({
-      isWellEditorOpen: true,
-      editWellId: id,
-    }),
+    set({ isWellEditorOpen: true, editWellId: id }),
 
   closeWellEditor: () =>
-    set({
-      isWellEditorOpen: false,
-      editWellId: null,
-    }),
+    set({ isWellEditorOpen: false, editWellId: null }),
 
-  // ---------------------------
-  // CLICK-ADD WELL
-  // ---------------------------
+  // ---------------------------------------------------
+  // ADD WELL (Using placement modes)
+  // ---------------------------------------------------
   addWell: ({ lat, lng }) => {
     const { geometry } = get();
-    const wells = geometry.wells;
 
-    let newName;
+    // Prevent accidental placement
+    if (!geometry.wellPlacementMode) return;
+
+    const wells = geometry.wells;
+    let name;
     let isPumping = false;
 
-    if (wells.length === 0) {
-      newName = "PW-1";
+    if (geometry.wellPlacementMode === "pumping") {
+      const pwCount = wells.filter((w) => w.isPumping).length + 1;
+      name = `PW-${pwCount}`;
       isPumping = true;
 
+      // Update reference point
       set({
-        geometry: {
-          ...geometry,
-          wellLat: lat,
-          wellLng: lng,
-        },
+        geometry: { ...geometry, wellLat: lat, wellLng: lng },
       });
-    } else {
+    }
+
+    if (geometry.wellPlacementMode === "observation") {
       const obsCount = wells.filter((w) => !w.isPumping).length + 1;
-      newName = `OBS-${obsCount}`;
+      name = `OBS-${obsCount}`;
+      isPumping = false;
     }
 
     const newWell = {
       id: uuidv4(),
       lat,
       lng,
-      name: newName,
+      name,
       isPumping,
       depth_ft: null,
       screen_top_ft: null,
@@ -146,137 +160,21 @@ export const useAquiferStore = create((set, get) => ({
     };
 
     set({
-      geometry: {
-        ...geometry,
-        wells: [...geometry.wells, newWell],
-      },
+      geometry: { ...geometry, wells: [...wells, newWell] },
     });
   },
 
-  // ---------------------------
-  // CSV IMPORT WELLS
-  // ---------------------------
-  importWellsFromCSV: (rows) => {
-    const { geometry } = get();
-    let existing = [...geometry.wells];
-
-    const toNum = (v) =>
-      v === undefined || v === null || v === "" ? null : Number(v);
-
-    let obsCounter = existing.filter((w) => !w.isPumping).length;
-
-    const imported = rows
-      .map((row) => {
-        const lat =
-          toNum(row.lat) ??
-          toNum(row.Lat) ??
-          toNum(row.latitude) ??
-          toNum(row.Latitude);
-        const lng =
-          toNum(row.lng) ??
-          toNum(row.Lng) ??
-          toNum(row.longitude) ??
-          toNum(row.Longitude);
-
-        if (lat === null || lng === null) return null;
-
-        let name =
-          row.name ||
-          row.Name ||
-          row.WellName ||
-          row.well_name ||
-          null;
-
-        const typeRaw = (row.type || row.Type || "").toString().toLowerCase();
-        const isPumping =
-          typeRaw === "pw" ||
-          typeRaw === "p" ||
-          typeRaw === "pumping";
-
-        if (!name) {
-          if (isPumping && !existing.some((w) => w.isPumping)) {
-            name = "PW-1";
-          } else {
-            obsCounter++;
-            name = `OBS-${obsCounter}`;
-          }
-        }
-
-        return {
-          id: uuidv4(),
-          lat,
-          lng,
-          name,
-          isPumping,
-          depth_ft: toNum(row.depth_ft ?? row.Depth ?? row.Depth_ft),
-          screen_top_ft: toNum(
-            row.screen_top_ft ??
-              row.ScreenTop ??
-              row.ScreenTop_ft
-          ),
-          screen_bottom_ft: toNum(
-            row.screen_bottom_ft ??
-              row.ScreenBottom ??
-              row.ScreenBottom_ft
-          ),
-          casing_diameter_in: toNum(
-            row.casing_diameter_in ??
-              row.CasingDiameter ??
-              row.CasingDiameter_in
-          ),
-          pump_depth_ft: toNum(
-            row.pump_depth_ft ??
-              row.PumpDepth ??
-              row.PumpDepth_ft
-          ),
-          static_water_level_ft: toNum(
-            row.static_water_level_ft ??
-              row.StaticWaterLevel ??
-              row.StaticWaterLevel_ft
-          ),
-          pump_test_notes:
-            row.pump_test_notes ??
-            row.Notes ??
-            row.notes ??
-            "",
-        };
-      })
-      .filter(Boolean);
-
-    let merged = existing.concat(imported);
-
-    // Ensure single pumping well
-    const pumpingList = merged.filter((w) => w.isPumping);
-    if (pumpingList.length > 1) {
-      pumpingList.slice(1).forEach((w) => (w.isPumping = false));
-    }
-
-    let pumping = merged.find((w) => w.isPumping);
-
-    if (!pumping && merged.length > 0) {
-      merged[0].isPumping = true;
-      pumping = merged[0];
-    }
-
-    set({
-      geometry: {
-        ...geometry,
-        wells: merged,
-        wellLat: pumping.lat,
-        wellLng: pumping.lng,
-      },
-    });
-  },
-
-  // ---------------------------
+  // ---------------------------------------------------
   // UPDATE WELL
-  // ---------------------------
+  // ---------------------------------------------------
   updateWell: (id, updates) => {
     const { geometry } = get();
+
     let wells = geometry.wells.map((w) =>
       w.id === id ? { ...w, ...updates } : w
     );
 
+    // If making a pumping well, all others demote
     if (updates.isPumping) {
       wells = wells.map((w) =>
         w.id === id ? { ...w, isPumping: true } : { ...w, isPumping: false }
@@ -292,23 +190,21 @@ export const useAquiferStore = create((set, get) => ({
           wellLng: pump.lng,
         },
       });
-    } else {
-      set({
-        geometry: {
-          ...geometry,
-          wells,
-        },
-      });
+      return;
     }
+
+    set({ geometry: { ...geometry, wells } });
   },
 
-  // ---------------------------
+  // ---------------------------------------------------
   // DELETE WELL
-  // ---------------------------
+  // ---------------------------------------------------
   deleteWell: (id) => {
     const { geometry } = get();
+
     let wells = geometry.wells.filter((w) => w.id !== id);
 
+    // If pumping well removed → promote first
     if (!wells.some((w) => w.isPumping) && wells.length > 0) {
       wells[0].isPumping = true;
       set({
@@ -319,49 +215,51 @@ export const useAquiferStore = create((set, get) => ({
           wellLng: wells[0].lng,
         },
       });
-    } else {
-      set({
-        geometry: {
-          ...geometry,
-          wells,
-        },
-      });
+      return;
     }
+
+    set({ geometry: { ...geometry, wells } });
   },
 
-  // ---------------------------
+  // ---------------------------------------------------
   // BOUNDARIES
-  // ---------------------------
+  // ---------------------------------------------------
   setGeometry: (updates) =>
     set((state) => ({
       geometry: { ...state.geometry, ...updates },
     })),
 
   addBoundaryPoint: (type, point) =>
+    set((state) => {
+      const geom = state.geometry;
+      return {
+        geometry: {
+          ...geom,
+          boundaries: {
+            ...geom.boundaries,
+            [type]: [...geom.boundaries[type], point],
+          },
+        },
+      };
+    }),
+
+  clearBoundaries: () =>
     set((state) => ({
       geometry: {
         ...state.geometry,
         boundaries: {
-          ...state.geometry.boundaries,
-          [type]: [...state.geometry.boundaries[type], point],
+          constantHead: [],
+          noFlow: [],
+          infinite: [],
         },
       },
     })),
 
-  // ---------------------------
-  // PUMP TEST DATA UPDATE
-  // ---------------------------
-  setPumpTestData: (type, data) =>
-    set((state) => ({
-      pumpTests: {
-        ...state.pumpTests,
-        [type]: data,
-      },
-    })),
+  // ---------------------------------------------------
+  // ANALYSIS
+  // ---------------------------------------------------
+  analysis: null,
 
-  // ---------------------------
-  // RUN AQUIFER ANALYSIS
-  // ---------------------------
   runAnalysis: async () => {
     const { geometry, pumpTests } = get();
 
@@ -375,6 +273,7 @@ export const useAquiferStore = create((set, get) => ({
       Ss: geometry.Ss,
       b_thick_ft: geometry.b_thick_ft,
       Kz_over_Kr: geometry.Kz_over_Kr,
+
       pump_test: pumpTests,
 
       time_series_min: [1, 2, 5, 10, 30, 60, 120, 300, 1000],
@@ -397,9 +296,9 @@ export const useAquiferStore = create((set, get) => ({
     return data;
   },
 
-  // ---------------------------
-  // PDF REPORT (legacy)
-  // ---------------------------
+  // ---------------------------------------------------
+  // PDF EXPORT
+  // ---------------------------------------------------
   downloadReport: async (projectId = 1) => {
     const response = await api.get(`/report/kdow/${projectId}`, {
       responseType: "blob",
@@ -411,4 +310,5 @@ export const useAquiferStore = create((set, get) => ({
     a.download = `KDOW_Report_Project_${projectId}.pdf`;
     a.click();
   },
+
 }));

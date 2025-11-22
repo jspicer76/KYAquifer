@@ -12,9 +12,11 @@ import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import { useAquiferStore } from "../store/aquiferStore";
 import { feetToLat, feetToLng } from "../utils/ftToLatLng";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
-// Fix default marker paths
+// ------------------------------------------------------------
+// FIX LEAFLET MARKER PATHS
+// ------------------------------------------------------------
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
   iconRetinaUrl:
@@ -32,6 +34,13 @@ const pumpingWellIcon = new L.Icon({
   iconAnchor: [16, 32],
 });
 
+// Observation well icon
+const obsWellIcon = new L.Icon({
+  iconUrl: "https://cdn-icons-png.flaticon.com/512/684/684908.png",
+  iconSize: [28, 28],
+  iconAnchor: [14, 28],
+});
+
 // Boundary node icon
 const boundaryNodeIcon = new L.Icon({
   iconUrl: "https://cdn-icons-png.flaticon.com/512/32/32339.png",
@@ -40,56 +49,105 @@ const boundaryNodeIcon = new L.Icon({
 });
 
 export default function AquiferMap() {
-  // Zustand store access
+  // Zustand state & actions
   const geometry = useAquiferStore((s) => s.geometry);
-  const whp = useAquiferStore((s) => s.whp);
-  const showWHP = useAquiferStore((s) => s.showWHP);
-
   const wells = geometry.wells;
+
   const addWell = useAquiferStore((s) => s.addWell);
   const updateWell = useAquiferStore((s) => s.updateWell);
   const addBoundaryPoint = useAquiferStore((s) => s.addBoundaryPoint);
-  const openWellEditor = useAquiferStore((s) => s.openWellEditor);
+  const setPlacementMode = useAquiferStore((s) => s.setPlacementMode);
 
-  // Track temporary polyline when drawing boundaries
+  // Well placement mode ("pumping" | "observation" | null)
+  const wellPlacementMode = geometry.wellPlacementMode;
+
+  // Boundary mode ("constantHead" | "noFlow" | "infinite" | null)
+  const boundaryMode = geometry.boundaryMode;
+
+  // Temp boundary for preview (optional future use)
   const [tempBoundary, setTempBoundary] = useState([]);
 
-  // ---------------------------
-  // Map click and event handling
-  // ---------------------------
+  // ------------------------------------------------------------
+  // ESC to exit placement mode
+  // ------------------------------------------------------------
+  useEffect(() => {
+    function handleESC(e) {
+      if (e.key === "Escape") {
+        setPlacementMode(null);
+        setTempBoundary([]);
+      }
+    }
+    window.addEventListener("keydown", handleESC);
+    return () => window.removeEventListener("keydown", handleESC);
+  }, [setPlacementMode]);
+
+  // ------------------------------------------------------------
+  // SNAPPING ONTO EXISTING BOUNDARY NODES
+  // ------------------------------------------------------------
+  function snapToBoundary(latlng) {
+    const allPoints = [
+      ...geometry.boundaries.constantHead,
+      ...geometry.boundaries.noFlow,
+      ...geometry.boundaries.infinite,
+    ];
+
+    if (allPoints.length === 0) return latlng;
+
+    let best = null;
+    let bestDist = Infinity;
+
+    allPoints.forEach((p) => {
+      const d =
+        Math.pow(p.lat - latlng.lat, 2) +
+        Math.pow(p.lng - latlng.lng, 2);
+
+      if (d < bestDist) {
+        bestDist = d;
+        best = p;
+      }
+    });
+
+    // Snap if within ~15 ft (~0.00004 deg)
+    return bestDist < 0.00004 ? best : latlng;
+  }
+
+  // ------------------------------------------------------------
+  // MAP CLICK HANDLER
+  // ------------------------------------------------------------
   function MapClickHandler() {
     useMapEvents({
       click(e) {
-        const boundaryMode = geometry.boundaryMode;
+        const pt = e.latlng;
 
+        // 1) WELL MODE
+        if (wellPlacementMode === "pumping") {
+          addWell({ lat: pt.lat, lng: pt.lng });
+          return;
+        }
+        if (wellPlacementMode === "observation") {
+          addWell({ lat: pt.lat, lng: pt.lng });
+          return;
+        }
+
+        // 2) BOUNDARY MODE
         if (boundaryMode) {
-          // Add boundary point
-          addBoundaryPoint(boundaryMode, e.latlng);
-          setTempBoundary((prev) => [...prev, e.latlng]);
-        } else {
-          // Add a new well
-          addWell({ lat: e.latlng.lat, lng: e.latlng.lng });
+          const snapped = snapToBoundary(pt);
+          addBoundaryPoint(boundaryMode, snapped);
+          setTempBoundary((prev) => [...prev, snapped]);
+          return;
         }
-      },
-
-      dblclick(e) {
-        // Double-click promotes the nearest well to pumping well
-        const { lat, lng } = e.latlng;
-        const nearest = wells.find(
-          (w) =>
-            Math.abs(w.lat - lat) < 0.0001 && Math.abs(w.lng - lng) < 0.0001
-        );
-        if (nearest) {
-          updateWell(nearest.id, { isPumping: true });
-        }
-      },
+      }
     });
+
     return null;
   }
 
-  // ---------------------------
-  // WHP Zone Conversion
-  // ---------------------------
+  // ------------------------------------------------------------
+  // WHP ZONE CONVERSION
+  // ------------------------------------------------------------
+  const whp = useAquiferStore((s) => s.whp);
+  const showWHP = useAquiferStore((s) => s.showWHP);
+
   const wellLat = geometry.wellLat;
   const wellLng = geometry.wellLng;
 
@@ -103,9 +161,9 @@ export default function AquiferMap() {
     wellLng + feetToLng(xFt, wellLat),
   ]);
 
-  // ---------------------------
-  // Render Component
-  // ---------------------------
+  // ------------------------------------------------------------
+  // RENDER MAP
+  // ------------------------------------------------------------
   return (
     <div style={{ height: "80vh", width: "100%" }}>
       <MapContainer
@@ -115,53 +173,41 @@ export default function AquiferMap() {
       >
         <TileLayer
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          attribution="&copy; OpenStreetMap contributors"
+          attribution="© OpenStreetMap contributors"
         />
 
         <MapClickHandler />
 
-        {/* ---------------------------
-            WELLS (DRAGGABLE + LABELS)
-           ---------------------------
-        */}
-        {wells.map((w, i) => (
+        {/* --------------------
+            WELLS (DRAGGABLE)
+        -------------------- */}
+        {wells.map((w) => (
           <Marker
             key={w.id}
             position={[w.lat, w.lng]}
             draggable={true}
-            icon={w.isPumping ? pumpingWellIcon : undefined}
+            icon={w.isPumping ? pumpingWellIcon : obsWellIcon}
             eventHandlers={{
               dragend: (e) => {
-                const newLat = e.target.getLatLng().lat;
-                const newLng = e.target.getLatLng().lng;
-                updateWell(w.id, { lat: newLat, lng: newLng });
-              },
-              click: () => {
-                openWellEditor(w.id);
-              },
+                updateWell(w.id, {
+                  lat: e.target.getLatLng().lat,
+                  lng: e.target.getLatLng().lng,
+                });
+              }
             }}
           >
-            {/* ALWAYS SHOW LABEL */}
-            <Tooltip permanent direction="top" offset={[0, -10]}>
-              <span
-                style={{
-                  fontWeight: w.isPumping ? "bold" : "normal",
-                  color: w.isPumping ? "green" : "black",
-                }}
-              >
-                {w.name}
-              </span>
+            <Tooltip permanent direction="top">
+              {w.name}
             </Tooltip>
           </Marker>
         ))}
 
-        {/* ---------------------------
-            DRAGGABLE BOUNDARY NODES
-           ---------------------------
-        */}
+        {/* --------------------
+            BOUNDARIES + NODES
+        -------------------- */}
         {Object.keys(geometry.boundaries).map((type) => {
           const pts = geometry.boundaries[type];
-          if (pts.length <= 1) return null;
+          if (pts.length < 2) return null;
 
           const color =
             type === "constantHead"
@@ -176,18 +222,14 @@ export default function AquiferMap() {
           return (
             <>
               <Polyline
-                key={`${type}-poly`}
+                key={`poly-${type}`}
                 positions={pts}
-                pathOptions={{
-                  color,
-                  dashArray: dash,
-                  weight: 3,
-                }}
+                pathOptions={{ color, dashArray: dash, weight: 3 }}
               />
 
-              {pts.map((p, idx) => (
+              {pts.map((p, i) => (
                 <Marker
-                  key={`${type}-node-${idx}`}
+                  key={`node-${type}-${i}`}
                   position={[p.lat, p.lng]}
                   draggable={true}
                   icon={boundaryNodeIcon}
@@ -196,16 +238,15 @@ export default function AquiferMap() {
                       const newLat = e.target.getLatLng().lat;
                       const newLng = e.target.getLatLng().lng;
 
-                      const newPts = [...pts];
-                      newPts[idx] = { lat: newLat, lng: newLng };
-
                       const updated = { ...geometry.boundaries };
-                      updated[type] = newPts;
+                      updated[type] = updated[type].map((n, idx) =>
+                        idx === i ? { lat: newLat, lng: newLng } : n
+                      );
 
                       useAquiferStore.setState({
                         geometry: { ...geometry, boundaries: updated },
                       });
-                    },
+                    }
                   }}
                 />
               ))}
@@ -213,10 +254,11 @@ export default function AquiferMap() {
           );
         })}
 
-                {/* WHP ZONES */}
+        {/* --------------------
+            WHP ZONES
+        -------------------- */}
         {showWHP && (
           <>
-            {/* Zone I */}
             {whp.zone1 && (
               <Circle
                 center={[wellLat, wellLng]}
@@ -225,32 +267,21 @@ export default function AquiferMap() {
               />
             )}
 
-            {/* Zone II */}
-            {whp.zone2.length > 10 && (
+            {zone2LatLng.length > 5 && (
               <Polygon
-                positions={whp.zone2.map(([x, y]) => {
-                  const dLat = feetToLat(y);
-                  const dLng = feetToLng(x, wellLat);
-                  return [wellLat + dLat, wellLng + dLng];
-                })}
-                pathOptions={{ color: "green", dashArray: "8" }}
+                positions={zone2LatLng}
+                pathOptions={{ color: "green", dashArray: "6" }}
               />
             )}
 
-            {/* Zone III */}
-            {whp.zone3.length > 10 && (
+            {zone3LatLng.length > 5 && (
               <Polygon
-                positions={whp.zone3.map(([x, y]) => {
-                  const dLat = feetToLat(y);
-                  const dLng = feetToLng(x, wellLat);
-                  return [wellLat + dLat, wellLng + dLng];
-                })}
-                pathOptions={{ color: "red", dashArray: "8" }}
+                positions={zone3LatLng}
+                pathOptions={{ color: "red", dashArray: "6" }}
               />
             )}
           </>
         )}
-
       </MapContainer>
     </div>
   );
