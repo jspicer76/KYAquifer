@@ -1,9 +1,19 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI
+from app.analysis import router as analysis_router
+from app.whp import router as whp_router
+
+app = FastAPI()
+
+app.include_router(analysis_router)
+app.include_router(whp_router)
 
 # Import routers
 from app.routers.analysis import router as analysis_router
 from app.routers.whp import router as whp_router
+from app.analysis import router as analysis_router
+app.include_router(analysis_router)
 
 app = FastAPI(
     title="Kentucky Aquifer Analysis API",
