@@ -1,0 +1,76 @@
+.well-label {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  color: #111 !important;
+  font-weight: 600;
+  padding: 0 !important;
+}
+
+.well-panel {
+  position: absolute;
+  z-index: 6000;
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.25);
+  padding: 0.75rem;
+  max-height: calc(100% - 40px);
+  overflow-y: auto;
+}
+
+.well-panel__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.4rem;
+  cursor: grab;
+}
+
+.well-panel__close {
+  border: none;
+  background: transparent;
+  font-size: 1rem;
+  cursor: pointer;
+  color: #555;
+}
+
+.boundary-popup {
+  position: absolute;
+  z-index: 5000;
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  padding: 0.5rem 0.75rem;
+  min-width: 180px;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+}
+
+.chart-modal {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 7000;
+}
+
+.chart-modal__content {
+  background: #fff;
+  padding: 1rem;
+  border-radius: 10px;
+  width: 480px;
+  max-width: 90%;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3);
+  position: relative;
+}
+
+.chart-modal__close {
+  position: absolute;
+  right: 10px;
+  top: 10px;
+  border: none;
+  background: transparent;
+  font-size: 1.2rem;
+  cursor: pointer;
+}

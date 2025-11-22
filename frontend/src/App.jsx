@@ -1,10 +1,8 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 import AquiferMap from "./components/Map";
 import PumpTestUploader from "./components/PumpTestUploader";
 import AnalysisPanel from "./components/AnalysisPanel";
-import WellEditorDrawer from "./components/WellEditorDrawer";
-import WellCSVImporter from "./components/WellCSVImporter";
 import TimeSeriesViewer from "./components/TimeSeriesViewer";
 import CalibrationPanel from "./components/CalibrationPanel";
 import CrossSection from "./components/CrossSection";
@@ -25,21 +23,27 @@ export default function App() {
 
   // NEW — unified well placement mode
   const setPlacementMode = useAquiferStore((s) => s.setPlacementMode);
+  const setBoundaryMode = useAquiferStore((s) => s.setBoundaryMode);
 
   const [showXsec, setShowXsec] = useState(false);
 
   // Boundary mode
-  const setBoundaryMode = (mode) =>
-    setGeometry({ boundaryMode: mode });
+  const startBoundaryPolygon = useAquiferStore((s) => s.startBoundaryPolygon);
+  const closePolygon = useAquiferStore((s) => s.closePolygon);
+  const clearBoundaryPolygon = useAquiferStore((s) => s.clearBoundaryPolygon);
+  const clearBoundaries = useAquiferStore((s) => s.clearBoundaries);
+  const undo = useAquiferStore((s) => s.undo);
 
-  const clearBoundaries = () =>
-    setGeometry({
-      boundaries: {
-        constantHead: [],
-        noFlow: [],
-        infinite: [],
-      },
-    });
+  useEffect(() => {
+    function handleUndo(e) {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        undo();
+      }
+    }
+    window.addEventListener("keydown", handleUndo);
+    return () => window.removeEventListener("keydown", handleUndo);
+  }, [undo]);
 
   return (
     <div
@@ -97,37 +101,39 @@ export default function App() {
 
         <button
           onClick={() => {
-            setPlacementMode("none");
-            setBoundaryMode("constantHead");
+            setPlacementMode(null);
+            startBoundaryPolygon();
           }}
           style={{ width: "100%" }}
         >
-          Draw Constant Head (Blue)
+          ➕ Begin Drawing Boundary Polygon
         </button>
 
         <button
-          onClick={() => {
-            setPlacementMode("none");
-            setBoundaryMode("noFlow");
-          }}
+          onClick={closePolygon}
           style={{ width: "100%", marginTop: "0.3rem" }}
         >
-          Draw No-Flow (Red)
+          ✔️ Close Polygon
         </button>
 
         <button
-          onClick={() => {
-            setPlacementMode("none");
-            setBoundaryMode("infinite");
+          onClick={clearBoundaryPolygon}
+          style={{
+            width: "100%",
+            marginTop: "0.6rem",
+            background: "#ddd",
+            padding: "0.4rem"
           }}
-          style={{ width: "100%", marginTop: "0.3rem" }}
         >
-          Draw Infinite (Green)
+          Clear Boundary Polygon
         </button>
 
-        <div style={{ fontSize: "0.85rem", marginTop: "0.3rem" }}>
-          <em>Press ESC to finish drawing boundaries.</em>
+        <div style={{ fontSize: "0.85rem", marginTop: "0.5rem" }}>
+          <em>Click on map to add vertices.  
+          Double-click to close polygon.  
+          After drawing, click segments to assign types.</em>
         </div>
+
 
         <button
           onClick={clearBoundaries}
@@ -154,8 +160,12 @@ export default function App() {
         <h3>Wells</h3>
 
         {wells.length === 0 ? (
-          <p>No wells yet. Use tools above or import CSV.</p>
-        ) : null}
+          <p>No wells yet. Use the buttons above to add them, then right-click a well on the map to edit its data.</p>
+        ) : (
+          <p style={{ fontSize: "0.85rem", color: "#555" }}>
+            Right-click any well on the map to edit depths, screens, casing, and pump data.
+          </p>
+        )}
 
         {wells.map((w) => (
           <div
@@ -185,10 +195,6 @@ export default function App() {
             </button>
           </div>
         ))}
-
-        <WellCSVImporter />
-
-        <hr />
 
         {/* WHP Toggle */}
         <button onClick={toggleWHP} style={{ width: "100%" }}>
@@ -228,7 +234,6 @@ export default function App() {
       {/* RIGHT PANEL */}
       <div style={{ flexGrow: 1, position: "relative" }}>
         <AquiferMap />
-        <WellEditorDrawer />
       </div>
     </div>
   );

@@ -134,4 +134,12 @@ def run_analysis_logic(payload: dict):
         )
         results["safe_yield_gpm"] = Qsafe
 
+    observation_sets = payload.get("observation_wells")
+    if observation_sets:
+        results["observation_wells"] = observation_sets
+
+    submitted_tests = payload.get("pump_test")
+    if submitted_tests:
+        results["submitted_pump_test"] = submitted_tests
+
     return results
